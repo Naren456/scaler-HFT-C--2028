@@ -13,7 +13,80 @@ We built the order book three ways:
 - **Implementation B** stores price levels in priority queues and uses hash maps for lookup. It uses lazy deletion: empty levels are discarded when the heap is queried.
 - **Implementation C** keeps orders in sorted `std::list`s. Each order stores its list iterator, so cancelling is fast, but adding an order means searching the list for its position.
 
-All three implement the `IOrderBook` interface in [order.h](order.h). The interface takes prices as `double`; internally they are rounded to integer ticks. `get_bbo()` returns the best bid and ask `Level`s together with flags saying whether each side is present. The data structures are described in more detail in [implementations.md](implementations.md).
+All three implement the `IOrderBook` interface in [order.h](order.h). The data structures are described in more detail in [implementations.md](implementations.md).
+
+## Interface changes
+
+The assignment allows the interface to be changed as long as the changes are documented. We made two changes, both for readability.
+
+### `BBO` holds two `Level`s
+
+The assignment's `BBO` lists six separate fields. Ours groups each side's price and quantity into the `Level` struct that `get_bids()` and `get_asks()` already return:
+
+<table>
+<tr><th>Assignment</th><th>Our code (<a href="order.h">order.h</a>)</th></tr>
+<tr><td>
+
+```cpp
+struct BBO {
+    bool has_bid;
+    double bid_price;
+    long bid_qty;
+
+    bool has_ask;
+    double ask_price;
+    long ask_qty;
+};
+```
+
+</td><td>
+
+```cpp
+struct BBO {
+    Level bid_level{};
+    Level ask_level{};
+    bool has_bid{false};
+    bool has_ask{false};
+};
+```
+
+</td></tr>
+</table>
+
+| Assignment field | Our field |
+|---|---|
+| `bid_price` | `bid_level.price` |
+| `bid_qty` | `bid_level.qty` |
+| `ask_price` | `ask_level.price` |
+| `ask_qty` | `ask_level.qty` |
+| `has_bid`, `has_ask` | unchanged |
+
+We changed it for readability:
+
+- **One type for a price level.** The best bid is a `Level`, the same as each entry in `get_bids()`, so code that prints or compares levels works for both.
+- **Price and quantity stay together.** `bbo.bid_level` is a single value you can pass around, so the bid's price can't be paired with the ask's quantity by mistake.
+- **Safe defaults.** Every field has a default value, so a `BBO{}` already means an empty book (`has_bid == false`, `has_ask == false`) and no field is left uninitialised.
+
+### A shared `IOrderBook` base class
+
+The five required operations are declared as pure virtual functions in `IOrderBook`. `OrderBookA`, `OrderBookB` and `OrderBookC` all inherit from it, so the benchmark and the correctness test run every implementation through the same code. [orderbook.h](orderbook.h) defines `OrderBook` as an alias for `OrderBookA`, so the class name the assignment uses still works.
+
+The function signatures match the assignment. Prices are still passed as `double`. Each implementation rounds them to integer ticks with `price_to_ticks()` and converts back with `ticks_to_price()` (both in [order.h](order.h)), so floating-point error can't produce two levels for the same price.
+
+## Performance report
+
+The full results and discussion are in [benchmark.md](benchmark.md):
+
+- [Benchmark results](benchmark.md#benchmark-results): median timings, page faults and peak memory for A, B and C
+- [`perf stat` results](benchmark.md#perf-stat-results): cycles, instructions, IPC, branch misses, cache misses and page faults
+- [Analysis](benchmark.md#analysis): why B is fastest and why C slows down as the book grows
+- [Reproduction](benchmark.md#reproduction): the exact commands we ran
+
+Screenshots of the runs:
+
+- Benchmark output: [Implementation B](screenshots/image%20copy%203.png), [Implementation C](screenshots/image%20copy%202.png)
+- `perf stat` output: [Implementation A](screenshots/perf%20A/2.png), [Implementation B](screenshots/perf%20B/3.png), [Implementation C](screenshots/perf%20C/3.png)
+- All screenshots: [screenshots/](screenshots/)
 
 ## Project layout
 
